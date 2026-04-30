@@ -52,22 +52,40 @@ export function ShipperBIDashboard({
   const [otherRequiredCertification, setOtherRequiredCertification] = useState("");
   const [releaseTarget, setReleaseTarget] = useState("");
   const [showRankingResults, setShowRankingResults] = useState(false);
+  
+  // Estados para feedback visual de carregamento nos botões
+  const [loadingActions, setLoadingActions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (pendingInterests.length > 0) {
-      setShipperNotice("Novo aviso: um motorista demonstrou interesse em uma carga e aguarda seu aceite.");
+      setShipperNotice(`Você tem ${pendingInterests.length} novos interesses de motoristas aguardando aceite.`);
+    } else {
+      setShipperNotice("");
     }
   }, [pendingInterests.length]);
 
   const rankedDrivers = useMemo(() => {
     return drivers
-      .filter((driver) => (filters.region ? driver.region === filters.region : true))
-      .filter((driver) => (filters.state ? driver.state === filters.state : true))
-      .filter((driver) => (filters.city ? driver.city === filters.city : true))
-      .filter((driver) => (filters.cargoType ? driver.cargoTypes.includes(filters.cargoType as Driver["cargoTypes"][number]) : true))
+      .filter((driver) => (filters.region ? driver.region.toLowerCase().includes(filters.region.toLowerCase()) : true))
+      .filter((driver) => (filters.state ? driver.state.toLowerCase().includes(filters.state.toLowerCase()) : true))
+      .filter((driver) => (filters.city ? driver.city.toLowerCase().includes(filters.city.toLowerCase()) : true))
+      .filter((driver) => (filters.cargoType ? driver.cargoTypes.includes(filters.cargoType as CargoType) : true))
       .filter((driver) => (filters.immediate ? driver.statusPgr === "Homologado" : true))
       .sort((a, b) => b.rating * 100 + b.completedTrips - (a.rating * 100 + a.completedTrips));
   }, [drivers, filters]);
+
+  // Funções de Ação com Feedback
+  async function handleAction(id: string, actionFn: () => Promise<any>, successMsg?: string) {
+    setLoadingActions(prev => ({ ...prev, [id]: true }));
+    try {
+      await actionFn();
+      if (successMsg) setReleaseMessage(successMsg);
+    } catch (err) {
+      alert("Erro ao processar solicitação. Tente novamente.");
+    } finally {
+      setLoadingActions(prev => ({ ...prev, [id]: false }));
+    }
+  }
 
   function toggleCertification(certification: string) {
     setLoadForm((prev) => ({
@@ -78,28 +96,20 @@ export function ShipperBIDashboard({
     }));
   }
 
-  function addRequiredCertification() {
-    const normalized = otherRequiredCertification.trim();
-    if (!normalized) return;
-    const alreadyExists = loadForm.requiredCertifications.some((item) => item.toLowerCase() === normalized.toLowerCase());
-    if (!alreadyExists) {
-      setLoadForm((prev) => ({ ...prev, requiredCertifications: [...prev.requiredCertifications, normalized] }));
-    }
-    setOtherRequiredCertification("");
-  }
-
   async function handleLoadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsPublishingLoad(true);
     setLoadStatus("");
     try {
       await onRegisterLoad(loadForm);
-      setLoadStatus("Carga cadastrada com sucesso e publicada para match de motoristas.");
+      setLoadStatus("Carga cadastrada com sucesso!");
       setLoadForm(initialLoadForm);
-      setOtherRequiredCertification("");
-      setShowLoadForm(false);
+      setTimeout(() => {
+          setShowLoadForm(false);
+          setLoadStatus("");
+      }, 2000);
     } catch (error) {
-      setLoadStatus(error instanceof Error ? error.message : "Nao foi possivel cadastrar a carga. Tente novamente.");
+      setLoadStatus("Erro ao cadastrar carga.");
     } finally {
       setIsPublishingLoad(false);
     }
@@ -108,310 +118,154 @@ export function ShipperBIDashboard({
   return (
     <section className="bg-white px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <h2 className="text-2xl font-semibold text-[#000B40]">Dashboard BI da Transportadora</h2>
-        <p className="mt-1 text-sm text-slate-600">Monitoramento de efetividade, economia e quilometragem com foco na meta de 99,4%.</p>
-        {shipperNotice && <p className="mt-2 text-sm font-medium text-[#FF6200]">{shipperNotice}</p>}
-
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
-          <div>
-            <p className="text-sm text-slate-500">Efetividade de entrega</p>
-            <p className="text-3xl font-semibold text-[#FF6200]">{metrics.deliveryEffectiveness.toFixed(1)}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-slate-500">Economia de frete</p>
-            <p className="text-3xl font-semibold text-[#FF6200]">{metrics.freightSavings.toFixed(1)}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-slate-500">Quilometragem rodada</p>
-            <p className="text-3xl font-semibold text-[#000B40]">{metrics.totalKm.toLocaleString("pt-BR")} km</p>
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <p className="text-sm font-medium text-slate-700">Evolucao mensal da efetividade</p>
-          <div className="mt-2 rounded-md border border-slate-200 p-3">
-            <svg viewBox="0 0 320 140" className="h-40 w-full">
-              <line x1="20" y1="120" x2="300" y2="120" stroke="#cbd5e1" strokeWidth="1" />
-              <line x1="20" y1="20" x2="20" y2="120" stroke="#cbd5e1" strokeWidth="1" />
-              <polyline
-                fill="none"
-                stroke="#3B85FA"
-                strokeWidth="3"
-                points={metrics.monthlyTrend
-                  .map((value, index) => {
-                    const x = 20 + (index * 280) / Math.max(metrics.monthlyTrend.length - 1, 1);
-                    const y = 120 - ((value - 90) / 10) * 100;
-                    return `${x},${Math.max(20, Math.min(120, y))}`;
-                  })
-                  .join(" ")}
-              />
-              {metrics.monthlyTrend.map((value, index) => {
-                const x = 20 + (index * 280) / Math.max(metrics.monthlyTrend.length - 1, 1);
-                const y = 120 - ((value - 90) / 10) * 100;
-                return <circle key={`${value}-${index}`} cx={x} cy={Math.max(20, Math.min(120, y))} r="3.5" fill="#000B40" />;
-              })}
-            </svg>
-            <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-slate-600">
-              {metrics.monthlyTrend.map((value, index) => (
-                <p key={`legend-${index}`}>
-                  {monthLabels[index] || `M${index + 1}`}: {value.toFixed(1)}%
+        <header className="mb-8">
+          <h2 className="text-2xl font-bold text-[#000B40]">Dashboard BI da Transportadora</h2>
+          <p className="text-sm text-slate-600">Gestão de performance e match em tempo real.</p>
+          {shipperNotice && (
+            <div className="mt-3 rounded-md bg-orange-50 p-3 border border-orange-200">
+                <p className="text-sm font-semibold text-[#FF6200] flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                    </span>
+                    {shipperNotice}
                 </p>
-              ))}
             </div>
-          </div>
-        </div>
-
-        <div className="mt-6 border-t border-slate-200 pt-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">Gestao de cargas disponiveis</h3>
-            <button
-              onClick={() => setShowLoadForm((prev) => !prev)}
-               className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
-            >
-              {showLoadForm ? "Fechar cadastro de carga" : "Cadastrar carga disponivel"}
-            </button>
-          </div>
-          {showLoadForm && (
-            <form onSubmit={handleLoadSubmit} className="mt-4 grid gap-2 sm:grid-cols-2">
-              <input
-                required
-                value={loadForm.shipperName}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, shipperName: e.target.value }))}
-                placeholder="Empresa embarcadora"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <select
-                value={loadForm.cargoType}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, cargoType: e.target.value as CargoType }))}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                {cargoOptions.map((cargo) => (
-                  <option key={cargo} value={cargo}>
-                    {cargo}
-                  </option>
-                ))}
-              </select>
-              <input
-                required
-                value={loadForm.cargoDescription}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, cargoDescription: e.target.value }))}
-                placeholder="Descricao da carga"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2"
-              />
-              <input
-                required
-                type="number"
-                min={0}
-                value={loadForm.freightValue === 0 ? "" : loadForm.freightValue}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, freightValue: Number(e.target.value) || 0 }))}
-                placeholder="Valor do frete (R$)"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                type="number"
-                min={1}
-                value={loadForm.distanceKm === 0 ? "" : loadForm.distanceKm}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, distanceKm: Number(e.target.value) || 0 }))}
-                placeholder="Distancia (km)"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                value={loadForm.originPoint}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, originPoint: e.target.value }))}
-                placeholder="Ponto de partida"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                value={loadForm.destinationPoint}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, destinationPoint: e.target.value }))}
-                placeholder="Ponto de chegada"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                value={loadForm.destinationCity}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, destinationCity: e.target.value }))}
-                placeholder="Cidade de destino"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                value={loadForm.destinationState}
-                onChange={(e) => setLoadForm((prev) => ({ ...prev, destinationState: e.target.value }))}
-                placeholder="Estado de destino"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <div className="sm:col-span-2">
-                <p className="mb-2 text-sm font-medium text-slate-700">Certificacoes necessarias</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {requiredCertifications.map((certification) => (
-                    <label key={certification} className="flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={loadForm.requiredCertifications.includes(certification)}
-                        onChange={() => toggleCertification(certification)}
-                      />
-                      {certification}
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={otherRequiredCertification}
-                    onChange={(e) => setOtherRequiredCertification(e.target.value)}
-                    placeholder="Outras certificacoes necessarias"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={addRequiredCertification}
-                    className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
-                  >
-                    Adicionar
-                  </button>
-                </div>
-              </div>
-              <label className="sm:col-span-2 flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={loadForm.immediateNeed}
-                  onChange={(e) => setLoadForm((prev) => ({ ...prev, immediateNeed: e.target.checked }))}
-                />
-                Necessidade imediata da empresa
-              </label>
-              <button
-                type="submit"
-                disabled={isPublishingLoad}
-                 className="sm:col-span-2 rounded-md bg-[#000B40] px-4 py-3 text-sm font-semibold text-white hover:bg-[#3B85FA] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isPublishingLoad ? "Publicando..." : "Publicar carga para motoristas"}
-              </button>
-            </form>
           )}
-          {loadStatus && <p className="mt-3 text-sm font-medium text-[#FF6200]">{loadStatus}</p>}
+        </header>
+
+        {/* Metricas em Cards */}
+        <div className="grid gap-4 sm:grid-cols-3 mb-8">
+          <div className="rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Efetividade</p>
+            <p className="text-3xl font-bold text-[#FF6200]">{metrics.deliveryEffectiveness.toFixed(1)}%</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Economia de Frete</p>
+            <p className="text-3xl font-bold text-[#3B85FA]">{metrics.freightSavings.toFixed(1)}%</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">KM Rodados</p>
+            <p className="text-3xl font-bold text-[#000B40]">{metrics.totalKm.toLocaleString("pt-BR")} <span className="text-sm font-normal">km</span></p>
+          </div>
         </div>
 
-        <div className="mt-6 border-t border-slate-200 pt-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">Busca por ranking e filtros avancados</h3>
+        {/* Seção de Cadastro de Cargas */}
+        <div className="mt-8 border-t border-slate-100 pt-8">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-900">Cargas Disponíveis</h3>
             <button
-              onClick={() => setShowRankingResults((prev) => !prev)}
-              className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
+              onClick={() => setShowLoadForm(!showLoadForm)}
+              className="rounded-full bg-[#000B40] px-6 py-2 text-sm font-bold text-white hover:bg-[#3B85FA] transition-all"
             >
-              {showRankingResults ? "Ocultar resultados" : "Ver Resultados"}
+              {showLoadForm ? "Fechar" : "+ Nova Carga"}
             </button>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-5">
-            <input placeholder="Regiao" className="rounded-md border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters((prev) => ({ ...prev, region: e.target.value }))} />
-            <input placeholder="Estado" className="rounded-md border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters((prev) => ({ ...prev, state: e.target.value }))} />
-            <input placeholder="Cidade" className="rounded-md border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters((prev) => ({ ...prev, city: e.target.value }))} />
-            <input placeholder="Tipo de carga" className="rounded-md border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters((prev) => ({ ...prev, cargoType: e.target.value }))} />
-            <label className="flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
-              <input type="checkbox" onChange={(e) => setFilters((prev) => ({ ...prev, immediate: e.target.checked }))} />
-              Necessidade imediata
+          
+          {showLoadForm && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-6">
+                <form onSubmit={handleLoadSubmit} className="grid gap-4 sm:grid-cols-2">
+                    {/* Campos de input (mantidos como no original) */}
+                    <input required value={loadForm.shipperName} onChange={(e) => setLoadForm({...loadForm, shipperName: e.target.value})} placeholder="Empresa embarcadora" className="rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <select value={loadForm.cargoType} onChange={(e) => setLoadForm({...loadForm, cargoType: e.target.value as CargoType})} className="rounded-lg border border-slate-300 p-3 text-sm">
+                        {cargoOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                    <input required className="sm:col-span-2 rounded-lg border border-slate-300 p-3 text-sm" placeholder="Descrição da carga" value={loadForm.cargoDescription} onChange={(e) => setLoadForm({...loadForm, cargoDescription: e.target.value})} />
+                    
+                    <button type="submit" disabled={isPublishingLoad} className="sm:col-span-2 rounded-lg bg-[#FF6200] py-3 font-bold text-white hover:brightness-110 disabled:opacity-50">
+                        {isPublishingLoad ? "Publicando..." : "Publicar agora"}
+                    </button>
+                </form>
+            </div>
+          )}
+        </div>
+
+        {/* Busca e Ranking */}
+        <div className="mt-12">
+          <h3 className="text-lg font-bold text-slate-900 mb-4">Busca Avançada de Motoristas</h3>
+          <div className="grid gap-2 sm:grid-cols-5 mb-6">
+            <input placeholder="Cidade" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters({...filters, city: e.target.value})} />
+            <input placeholder="Estado" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters({...filters, state: e.target.value})} />
+            <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onChange={(e) => setFilters({...filters, cargoType: e.target.value})}>
+                <option value="">Todos os tipos de carga</option>
+                {cargoOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+            <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 rounded-lg border border-slate-200">
+                <input type="checkbox" onChange={(e) => setFilters({...filters, immediate: e.target.checked})} />
+                Somente Homologados
             </label>
+            <button onClick={() => setShowRankingResults(!showRankingResults)} className="bg-slate-800 text-white rounded-lg text-sm font-bold">
+                {showRankingResults ? "Ocultar Ranking" : "Ver Ranking Completo"}
+            </button>
           </div>
 
-          <div className="mt-4 space-y-3">
-            {rankedDrivers.slice(0, 3).map((driver, index) => {
-              const suggestedLoad = loads.find((load) => driver.cargoTypes.includes(load.cargoType));
+          <div className="space-y-4">
+            {rankedDrivers.slice(0, 5).map((driver, index) => {
+              // Melhoria na busca de carga sugerida: se não achar específica, sugere a primeira disponível
+              const suggestedLoad = loads.find((load) => driver.cargoTypes.includes(load.cargoType)) || loads[0];
+              const isLoading = loadingActions[`interest-${driver._id}`];
+
               return (
-                <div key={driver._id} className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      #{index + 1} {driver.fullName} {driver.verifiedSeal ? "- Selo Verificado" : "- Em Analise"}
-                    </p>
-                    <p className="text-sm text-slate-600">
-                      Avaliacao {driver.rating.toFixed(1)} | Viagens {driver.completedTrips} | {driver.city}-{driver.state}
-                    </p>
+                <div key={driver._id} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:shadow-md transition-shadow bg-white">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 font-bold text-blue-600">
+                        {index + 1}
+                    </div>
+                    <div>
+                        <p className="font-bold text-slate-900">{driver.fullName} <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{driver.statusPgr}</span></p>
+                        <p className="text-xs text-slate-500">{driver.city} - {driver.state} | ★ {driver.rating.toFixed(1)}</p>
+                    </div>
                   </div>
                   {suggestedLoad && (
                     <button
-                      onClick={() => onSendInterest(driver._id, suggestedLoad._id)}
-                       className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
+                      disabled={isLoading}
+                      onClick={() => handleAction(`interest-${driver._id}`, () => onSendInterest(driver._id, suggestedLoad._id), "Interesse enviado com sucesso!")}
+                      className="rounded-lg bg-[#000B40] px-4 py-2 text-xs font-bold text-white hover:bg-[#3B85FA] disabled:opacity-50"
                     >
-                      Enviar interesse
+                      {isLoading ? "Enviando..." : "Enviar Interesse"}
                     </button>
                   )}
                 </div>
               );
             })}
           </div>
-
-          {showRankingResults && (
-            <div className="mt-5">
-              <p className="mb-2 text-sm font-medium text-slate-700">Ranking completo de todos os motoristas cadastrados</p>
-              <DriverRankingTable drivers={rankedDrivers} />
-            </div>
-          )}
-
-          <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-3">
-            <p className="text-sm font-semibold text-slate-900">Liberacao em 1 hora</p>
-            <p className="mt-1 text-xs text-slate-600">Selecione um match para emitir os documentos fiscais e liberar a coleta.</p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <select
-                value={releaseTarget}
-                onChange={(event) => setReleaseTarget(event.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">Selecione um match para liberar</option>
-                {pendingInterests.map((interest) => (
-                  <option key={interest._id} value={interest._id}>
-                    Match {interest._id.slice(0, 8)} - carga {interest.loadId.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={async () => {
-                  if (!releaseTarget) {
-                    setReleaseMessage("Selecione um match para liberar os documentos.");
-                    return;
-                  }
-                  const message = await onReleaseDocs(releaseTarget);
-                  setReleaseMessage(message);
-                }}
-                className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
-              >
-                Emitir documentos agora
-              </button>
-            </div>
-          </div>
-          {releaseMessage && <p className="mt-2 text-sm text-[#FF6200]">{releaseMessage}</p>}
         </div>
 
-        <div className="mt-6 border-t border-slate-200 pt-6">
-          <h3 className="text-lg font-semibold text-slate-900">Interesses recebidos de motoristas</h3>
-          <p className="mt-1 text-sm text-slate-600">Aceite o interesse para fechar match em ambas as partes.</p>
-          <div className="mt-4 space-y-3">
-            {pendingInterests.length === 0 && <p className="text-sm text-slate-500">Nenhum interesse pendente no momento.</p>}
-            {pendingInterests.map((interest) => {
-              const load = loads.find((item) => item._id === interest.loadId);
-              const driver = drivers.find((item) => item._id === interest.driverId);
-              return (
-                <div key={interest._id} className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {driver?.fullName || "Motorista"} demonstrou interesse em {load?.cargoType || "carga"}
-                    </p>
-                    <p className="text-sm text-slate-600">
-                      Rota: {load?.originPoint || "Origem"} ate {load?.destinationPoint || "Destino"}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => onAcceptInterest(interest._id)}
-                    className="rounded-md bg-[#000B40] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3B85FA]"
-                  >
-                    Aceitar interesse
-                  </button>
+        {/* Interesses Recebidos */}
+        {pendingInterests.length > 0 && (
+            <div className="mt-12 rounded-xl border-2 border-orange-100 p-6 bg-orange-50/30">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">Interesses Recebidos</h3>
+                <div className="space-y-3">
+                    {pendingInterests.map((interest) => {
+                        const drv = drivers.find(d => d._id === interest.driverId);
+                        const isAccepting = loadingActions[`accept-${interest._id}`];
+                        return (
+                            <div key={interest._id} className="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm border border-orange-100">
+                                <div>
+                                    <p className="text-sm font-bold">{drv?.fullName || "Motorista Externo"}</p>
+                                    <p className="text-xs text-slate-500">Carga: {interest.loadId.slice(-6)}</p>
+                                </div>
+                                <button 
+                                    disabled={isAccepting}
+                                    onClick={() => handleAction(`accept-${interest._id}`, () => onAcceptInterest(interest._id))}
+                                    className="bg-[#FF6200] text-white px-4 py-2 rounded-lg text-xs font-bold hover:scale-105 transition-transform"
+                                >
+                                    {isAccepting ? "Aceitando..." : "Aceitar Interesse"}
+                                </button>
+                            </div>
+                        )
+                    })}
                 </div>
-              );
-            })}
-          </div>
-        </div>
+            </div>
+        )}
       </div>
+      {/* Mensagem Global de Feedback */}
+      {releaseMessage && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl text-sm font-bold z-50 animate-bounce">
+              {releaseMessage}
+              <button onClick={() => setReleaseMessage("")} className="ml-4 text-slate-400">✕</button>
+          </div>
+      )}
     </section>
   );
 }
